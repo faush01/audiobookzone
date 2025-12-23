@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using audiobookzone.Data;
+using audiobookzone.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,9 @@ builder.Logging.AddSimpleConsole(options =>
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+
+// Register FFmpeg cleanup service
+builder.Services.AddHostedService<FfmpegCleanupService>();
 
 // Configure SQLite Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

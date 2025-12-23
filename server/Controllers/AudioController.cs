@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Threading;
+using audiobookzone.Services;
 
 
 namespace audiobookzone.Controllers
@@ -347,6 +348,9 @@ namespace audiobookzone.Controllers
                 };
 
                 process.Start();
+
+                // Register process for cleanup on shutdown
+                FfmpegCleanupService.ActiveProcesses.Add(process);
 
                 // Monitor FFmpeg output for progress
                 var errorTask = Task.Run(async () =>
