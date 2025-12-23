@@ -1,0 +1,349 @@
+@{
+    ViewData["Title"] = "Audio Player";
+}
+
+<h1>Audio Player</h1>
+
+<div id="player-container">
+    <audio id="audio-player"></audio>
+    <div id="status">Loading...</div>
+    <div id="info">
+        <span id="current-time">0:00</span> / <span id="duration">0:00</span>
+    </div>
+    <div class="progress-container">
+        <input type="range" id="progress-bar" min="0" max="100" value="0" step="0.1">
+    </div>
+    <div class="player-controls">
+        <button id="play-pause-btn">▶ Play</button>
+        <button id="rewind-btn">⏪ 30s</button>
+        <button id="forward-btn">⏩ 30s</button>
+    </div>
+    <div class="controls">
+        <button id="preload-btn">Start Background Conversion</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const audioId = '@ViewBag.AudioId';
+        const audioElement = document.getElementById('audio-player');
+        const statusElement = document.getElementById('status');
+        const currentTimeElement = document.getElementById('current-time');
+        const durationElement = document.getElementById('duration');
+        const preloadBtn = document.getElementById('preload-btn');
+
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {
+                return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        const progressBar = document.getElementById('progress-bar');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const rewindBtn = document.getElementById('rewind-btn');
+        const forwardBtn = document.getElementById('forward-btn');
+        
+        let isDraggingProgressBar = false;
+
+        audioElement.addEventListener('timeupdate', function() {
+            currentTimeElement.textContent = formatTime(audioElement.currentTime);
+            
+            // Update progress bar only if not dragging
+            if (!isDraggingProgressBar && audioElement.duration) {
+                progressBar.value = (audioElement.currentTime / audioElement.duration) * 100;
+            }
+        });
+
+        audioElement.addEventListener('loadedmetadata', function() {
+            durationElement.textContent = formatTime(audioElement.duration);
+            progressBar.max = 100;
+        });
+
+        // Play/Pause button
+        playPauseBtn.addEventListener('click', function() {
+            console.log('Play Action Initiated');
+            if (audioElement.paused) {
+                console.log('Doing Play Action');
+                audioElement.play().then(function() {
+                    playPauseBtn.textContent = '⏸ Pause';
+                }).catch(function(error) {
+                    console.log('Play failed:', error);
+                    statusElement.textContent = 'Failed to play - waiting for content to load';
+                });
+            } else {
+                console.log('Doing Pause Action');
+                audioElement.pause();
+                playPauseBtn.textContent = '▶ Play';
+            }
+        });
+
+        // Update play/pause button when audio state changes
+        audioElement.addEventListener('play', function() {
+            playPauseBtn.textContent = '⏸ Pause';
+        });
+
+        audioElement.addEventListener('pause', function() {
+            playPauseBtn.textContent = '▶ Play';
+        });
+
+        // Rewind 30 seconds
+        rewindBtn.addEventListener('click', function() {
+            audioElement.currentTime = Math.max(0, audioElement.currentTime - 30);
+        });
+
+        // Forward 30 seconds
+        forwardBtn.addEventListener('click', function() {
+            audioElement.currentTime = Math.min(audioElement.duration, audioElement.currentTime + 30);
+        });
+
+        // Progress bar - track when user starts dragging
+        progressBar.addEventListener('mousedown', function() {
+            isDraggingProgressBar = true;
+        });
+
+        progressBar.addEventListener('touchstart', function() {
+            isDraggingProgressBar = true;
+        });
+
+        // Progress bar - update position only when user releases
+        progressBar.addEventListener('mouseup', function() {
+            seekToProgressBarPosition();
+        });
+
+        progressBar.addEventListener('touchend', function() {
+            seekToProgressBarPosition();
+        });
+
+        // Also handle if user drags outside and releases
+        document.addEventListener('mouseup', function() {
+            if (isDraggingProgressBar) {
+                seekToProgressBarPosition();
+            }
+        });
+
+        function seekToProgressBarPosition() {
+            if (isDraggingProgressBar && audioElement.duration) {
+                const seekTime = (progressBar.value / 100) * audioElement.duration;
+                console.log('Seeking to:', seekTime);
+                audioElement.currentTime = seekTime;
+            }
+            isDraggingProgressBar = false;
+        }
+
+        let hlsInstance = null;
+
+        preloadBtn.addEventListener('click', async function() {
+            try {
+                const response = await fetch(`/api/audio/${audioId}/preload`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    statusElement.textContent = 'Background conversion started - segments will be pre-cached';
+                    preloadBtn.disabled = true;
+                    preloadBtn.textContent = 'Converting in background...';
+                } else {
+                    statusElement.textContent = 'Failed to start background conversion';
+                }
+            } catch (error) {
+                console.error('Error starting preload:', error);
+                statusElement.textContent = 'Error starting background conversion';
+            }
+        });
+
+        function createHlsInstance(startPosition = 0, autoplay = false) {
+            const hls = new Hls({
+                debug: false,
+                enableWorker: true,
+                lowLatencyMode: false,
+                autoStartLoad: false, // Don't auto-load, we'll control it manually
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                maxBufferSize: 60 * 1000 * 1000,
+                maxBufferHole: 0.5,
+                manifestLoadingTimeOut: 10000,
+                manifestLoadingMaxRetry: 4,
+                manifestLoadingRetryDelay: 1000,
+                levelLoadingTimeOut: 10000,
+                levelLoadingMaxRetry: 4,
+                fragLoadingTimeOut: 20000,
+                fragLoadingMaxRetry: 6,
+                fragLoadingRetryDelay: 1000
+            });
+
+            hlsInstance = hls;
+
+            hls.loadSource(`/api/audio/${audioId}/playlist.m3u8`);
+            hls.attachMedia(audioElement);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                // Start loading from the specified position
+                hls.startLoad(startPosition);
+                
+                if (startPosition > 0) {
+                    audioElement.currentTime = startPosition;
+                }
+                
+                if (autoplay) {
+                    audioElement.play().catch(e => console.log('Autoplay prevented:', e));
+                }
+                
+                statusElement.textContent = 'Ready to play';
+            });
+
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                console.error('HLS Error:', data);
+                
+                if (data.fatal) {
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            statusElement.textContent = 'Network error - retrying...';
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            statusElement.textContent = 'Media error - recovering...';
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            statusElement.textContent = `Fatal error: ${data.details}`;
+                            break;
+                    }
+                }
+            });
+
+            hls.on(Hls.Events.FRAG_LOADING, function(event, data) {
+                statusElement.textContent = `Loading segment ${data.frag.sn}...`;
+            });
+
+            hls.on(Hls.Events.FRAG_LOADED, function(event, data) {
+                statusElement.textContent = 'Ready';
+            });
+
+            return hls;
+        }
+
+        if (Hls.isSupported()) {
+            createHlsInstance();
+        } else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (Safari)
+            audioElement.src = `/api/audio/${audioId}/playlist.m3u8`;
+            statusElement.textContent = 'Using native HLS support';
+        } else {
+            statusElement.textContent = 'HLS is not supported in this browser';
+        }
+    });
+</script>
+
+<style>
+    #player-container {
+        max-width: 600px;
+        margin: 20px auto;
+        text-align: center;
+        padding: 20px;
+        background: #f5f5f5;
+        border-radius: 8px;
+    }
+
+    #audio-player {
+        display: none;
+    }
+
+    .progress-container {
+        margin: 20px 0;
+        width: 100%;
+    }
+
+    #progress-bar {
+        width: 100%;
+        height: 8px;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        background: #ddd;
+        border-radius: 4px;
+        outline: none;
+    }
+
+    #progress-bar::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        background: #007bff;
+        cursor: pointer;
+        border-radius: 50%;
+    }
+
+    #progress-bar::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        background: #007bff;
+        cursor: pointer;
+        border-radius: 50%;
+        border: none;
+    }
+
+    .player-controls {
+        margin: 15px 0;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .player-controls button {
+        padding: 10px 20px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .player-controls button:hover {
+        background: #218838;
+    }
+
+    #status {
+        margin-top: 10px;
+        font-style: italic;
+        color: #666;
+        min-height: 20px;
+    }
+
+    #info {
+        margin: 15px 0;
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+
+    .controls {
+        margin-top: 15px;
+    }
+
+    .controls button {
+        padding: 10px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .controls button:hover:not(:disabled) {
+        background: #0056b3;
+    }
+
+    .controls button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+    }
+</style>

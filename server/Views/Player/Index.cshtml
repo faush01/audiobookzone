@@ -1,0 +1,35 @@
+@using audiobookzone.Controllers
+@{
+    ViewData["Title"] = "Audio Player Selection";
+    var audioFiles = ViewBag.AudioFiles as List<AudioFileInfo>;
+}
+
+<h1>Audio Player</h1>
+
+<p>Select an audiobook to listen to:</p>
+
+@if (audioFiles != null && audioFiles.Any())
+{
+    <div class="audiobook-list">
+        <ul class="list-group">
+            @foreach (var audio in audioFiles)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5>@audio.DisplayName</h5>
+                        <small class="text-muted">File: @audio.FileName | Size: @audio.FileSize</small>
+                    </div>
+                    <a href="/Player/Play/@audio.Id" class="btn btn-primary">Play</a>
+                </li>
+            }
+        </ul>
+    </div>
+}
+else
+{
+    <div class="alert alert-warning" role="alert">
+        No audio files found in the media folder.
+    </div>
+}
+
+<p class="mt-3"><a href="/Home">Back to Home</a></p>
