@@ -270,7 +270,7 @@ namespace audiobookzone.Controllers
             // FFmpeg progress tracking, what has ffmpeg finished converting
             if (_conversionProgress.TryGetValue(audioId, out var progress))
             {
-                if (segmentNumber <= progress.HighestCompletedSegment)
+                if (progress.CompletedSegments.Contains(segmentNumber))
                 {
                     _logger.LogInformation("Segment {SegmentNumber} is ready (FFmpeg completed up to {CompletedSegment})", 
                         segmentNumber, progress.HighestCompletedSegment);
